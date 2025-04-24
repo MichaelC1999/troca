@@ -1,0 +1,5 @@
+[workspace]
+members = [
+  "circuits/inbound",
+  "circuits/outbound"
+]
