@@ -1,6 +1,6 @@
 import { Router } from 'express'
-import { generateProof } from '../noir'
-import { recoverAddress, keccak256, toBytes, hexToBytes, decodeAbiParameters, parseAbiParameters } from 'viem'
+import { generateInboundProof } from '../noir'
+import { recoverAddress, keccak256, toBytes, hexToBytes, decodeAbiParameters, parseAbiParameters, recoverPublicKey, encodeAbiParameters } from 'viem'
 import { sendPix, checkPixSent } from '../pix'
 import db from '../db'
 
@@ -16,7 +16,7 @@ function numberToU64Bytes(amount) {
 
 const router = Router()
 
-router.post('/create-proof', async (req, res) => {
+router.post('/send-inbound-pix', async (req, res) => {
     // -Stablecoins are transfered to the escrow thru intendPayment(intentsigner,amount) which transfers assets from msg.sender, increments signer's nonce and adds signer => nonce => amount mapping
   // -Signing User signs over intent and sends this to the pix node
   // -----ROUTE LOGIC STARTS HERE--------
@@ -33,35 +33,50 @@ router.post('/create-proof', async (req, res) => {
   // MAKE READ CALL TO OUR ESCROW CONTRACT FOR THE SIGNER INTENT NONCE + WHETHER THIS NONCE HAS FINALIZED + THE NONCE AMOUNT 
   // 
 
-  const { signature, payloadHex } = req.body
+  //intentHex is the data of the intent specifying the sender's nonce, the pix recipient, and the pix amount. Signature signs over a hash of this data
+  const { signature, intentHex } = req.body
 
-  if (!signature || !payloadHex)
+  if (!signature || !intentHex)
     return res.status(400).json({ error: 'Missing signature or payload' })
 
   // Step 1: Hash the payload that was originally signed
-  const payloadBytes = toBytes(payloadHex)
-  const payloadHash = keccak256(payloadBytes)
+  const intentBytes = toBytes(intentHex)
+  const intentHash = keccak256(intentBytes)
 
   // Step 2: Recover signer address from signature and hash
   let signerAddress
   try {
     signerAddress = await recoverAddress({
-      hash: payloadHash,
+      hash: intentHash,
       signature,
     })
   } catch (err) {
     return res.status(400).json({ error: 'Invalid signature' })
   }
 
-  // Step 3: Decode payload into components (uint256 nonce, string intent, uint256 amount)
-  let nonce, intent, amount
+  let signerPub
+  try {
+    signerPub = await recoverPublicKey({
+      hash: intentHash,
+      signature,
+    })
+  } catch (err) {
+    return res.status(400).json({ error: 'Invalid signature' })
+  }
+
+  const pubkeyBytes = signerPub.slice(1) // remove 0x04 prefix
+  const pub_key_x = pubkeyBytes.slice(0, 32)
+  const pub_key_y = pubkeyBytes.slice(32, 64)
+
+  // Step 3: Decode payload into components (uint256 nonce, string intendedRecipient, uint256 amount)
+  let nonce, intendedRecipient, amount
   try {
     const decoded = decodeAbiParameters(
-      parseAbiParameters('uint256 nonce, string intent, uint256 amount'),
-      payloadBytes
+      parseAbiParameters('uint256 nonce, string intendedRecipient, uint256 amount'),
+      intentBytes
     )
     nonce = decoded[0]
-    intent = decoded[1]
+    intendedRecipient = decoded[1]
     amount = decoded[2]
   } catch (err) {
     return res.status(400).json({ error: 'Unable to decode payload' })
@@ -74,7 +89,7 @@ router.post('/create-proof', async (req, res) => {
   // await readEscrowState(signerAddress, nonce)
 
   // -------------- SEND PIX ----------------
-  const pixChave = intent
+  const pixChave = intendedRecipient
   const { txid } = await sendPix(pixChave, amount)
 
   // Wait for it to finalize
@@ -86,14 +101,21 @@ router.post('/create-proof', async (req, res) => {
 
   // -------- ZK INPUT PREP -------------
 
-  // (public: {signingSenderAddress, payloadHash}, private: {signature, nonce, chave, amount, txid})
+
+  // Create and hash the assumed payload to be confirmed from CL function
+  const encodedPayload = encodeAbiParameters(
+    parseAbiParameters('bytes32 txid, bytes32 recipientChave, uint256 amount'),
+    [txid, amount, pixChave]
+  )
+  const payloadBytes = toBytes(encodedPayload)
+  const payloadHash = keccak256(payloadBytes)
+  const payloadHashBytes = Array.from(hexToBytes(payloadHash))
 
   const signatureBytes = Array.from(hexToBytes(signature))
-  const payloadHashBytes = Array.from(hexToBytes(payloadHash))
   const txidBytes = Array.from(hexToBytes(txid))
   const chaveBytes = Array.from(hexToBytes(pixChave))
-  const signerBytes = Array.from(hexToBytes(signerAddress))
-
+  const signerPubX = Array.from(hexToBytes(pub_key_x))
+  const signerPubY = Array.from(hexToBytes(pub_key_y))
 
 
   const nonceBytes = numberToU64Bytes(nonce)
@@ -101,16 +123,19 @@ router.post('/create-proof', async (req, res) => {
 
   // === Noir-compatible circuit inputs ===
   const circuitInputs = {
+    //PRIVATE
     signature: signatureBytes,
-    nonce_bytes: nonceBytes,
     chave_bytes: chaveBytes,
     amount_bytes: amountBytes,
     txid_bytes: txidBytes,
+    nonce_bytes: nonceBytes,
+    //PUBLIC
     payload_hash: payloadHashBytes,
-    signing_sender: signerBytes,
+    signing_sender_x: signerPubX,
+    signing_sender_y: signerPubY
   }
   // -------- GENERATE PROOF ----------
-  const { proof } = await generateProof(circuitInputs)
+  const { proof } = await generateInboundProof(circuitInputs)
 
 
   // -------- STORE + RETURN ----------
@@ -123,6 +148,6 @@ router.post('/create-proof', async (req, res) => {
   //   JSON.stringify(proof),
   // )
 
-  return res.json({ txid, signerAddress, nonce, intent, amount, proof })
+  return res.json({ txid, signerAddress, nonce, intendedRecipient, amount, proof })
 })
 export default router

@@ -3,7 +3,7 @@ import axios from 'axios'
 const INTER_BASE = process.env.INTER_API_URL!
 const INTER_TOKEN = process.env.INTER_API_TOKEN!
 
-const BASE_HEADERS = (accessToken, contaCorrente) => ({
+const BASE_HEADERS = (accessToken) => ({
     Authorization: `Bearer ${accessToken}`,
     'Content-Type': 'application/json',
   })
@@ -11,7 +11,6 @@ const BASE_HEADERS = (accessToken, contaCorrente) => ({
   // 1. Send Pix to a recipient using their Pix key
   export async function sendPixInbound({
     accessToken,
-    contaCorrente,
     chavePix,
     valor,
     descricao,
@@ -28,7 +27,7 @@ const BASE_HEADERS = (accessToken, contaCorrente) => ({
       },
     }
   
-    const headers = BASE_HEADERS(accessToken, contaCorrente)
+    const headers = BASE_HEADERS(accessToken, )
     const response = await axios.post(url, body, { headers })
     return response.data 
     // {
@@ -43,11 +42,10 @@ const BASE_HEADERS = (accessToken, contaCorrente) => ({
 // 2. Chainlink-compatible: Check if Pix was sent by node using codigoSolicitacao
 export async function checkPixSent({
     accessToken,
-    contaCorrente,
     codigoSolicitacao,
   }) {
     const url = `https://cdpj-sandbox.partners.uatinter.co/banking/v2/pix/${codigoSolicitacao}`
-    const headers = BASE_HEADERS(accessToken, contaCorrente)
+    const headers = BASE_HEADERS(accessToken, )
   
     const response = await axios.get(url, { headers })
     return response.data.transacaoPix // includes status, endToEnd, valor, etc.
@@ -56,11 +54,10 @@ export async function checkPixSent({
   // 3. Chainlink-compatible: Check if a Pix was received by node using e2eId
   export async function checkPixReceived({
     accessToken,
-    contaCorrente,
     e2eId,
   }) {
     const url = `https://cdpj-sandbox.partners.uatinter.co/pix/v2/pix/${e2eId}`
-    const headers = BASE_HEADERS(accessToken, contaCorrente)
+    const headers = BASE_HEADERS(accessToken, )
   
     const response = await axios.get(url, { headers })
     return response.data // includes recebedor, valor, status, dataHoraMovimento, etc.
