@@ -4,8 +4,8 @@ use std::hash::keccak256;
 fn main(
     // PRIVATE INPUTS
     signature: [u8; 64], // r (32 bytes) || s (32 bytes)
-    txid_bytes: [u8; 32],
-    chave_bytes: [u8; 32],
+    txid_bytes: [u8; 32], //CHANGE TO txid_hash_bytes
+    chave_bytes: [u8; 32], //CHANGE TO chave_hash_bytes
     amount_bytes: [u8; 8],
     nonce_bytes: [u8; 8],
     // PUBLIC INPUTS

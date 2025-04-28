@@ -1,12 +1,9 @@
 import { Router } from 'express'
 import { generateOutboundProof } from '../noir'
 import { recoverAddress, keccak256, toBytes, hexToBytes, decodeAbiParameters, parseAbiParameters, recoverPublicKey, encodeAbiParameters } from 'viem'
-import { sendPix, checkPixSent } from '../pix'
-import db from '../db'
 import { privateKeyToAccount } from 'viem/accounts'
-import { signMessage } from 'viem/actions'
 
-function numberToU64Bytes(amount) {
+function numberToU64Bytes(amount: any) {
   const buf = new Array(8).fill(0)
   let value = BigInt(amount)
   for (let i = 7; i >= 0; i--) {
@@ -18,7 +15,10 @@ function numberToU64Bytes(amount) {
 
 const router = Router()
 
-router.post('/receive-outbound-pix', async (req, res) => {
+const PK  = process.env.PRIVATE_KEY as any
+
+
+router.post('/receive-outbound-pix', async (req: any, res: any) => {
     // -User sends a pix to our chave with a memo (recipient, order id)
     // -Front end generates a proof of the payload hash
     // -----ROUTE LOGIC STARTS HERE--------
@@ -59,10 +59,8 @@ router.post('/receive-outbound-pix', async (req, res) => {
   const intent_hash = keccak256(intentBytes)
 
   // Sign with node key
-  const nodeKey = process.env.NODE_PK
-  if (!nodeKey) return res.status(500).json({ error: 'NODE_PK not configured' })
 
-  const nodeAccount = privateKeyToAccount(`0x${nodeKey}`)
+  const nodeAccount = privateKeyToAccount(PK)
   const signature = await nodeAccount.signMessage({ message: { raw: intent_hash } })
 
   // Prepare bytes

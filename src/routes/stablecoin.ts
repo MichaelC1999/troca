@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { transferUSDC } from '../web3'
+import { transferUSDC } from '../escrowActions'
 
 const router = Router()
 

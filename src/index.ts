@@ -1,8 +1,8 @@
 import express from 'express'
+import inboundRouter from './routes/inbound'
+import stablecoinRouter from './routes/stablecoin'
+// import './db.ts'      // initialize SQLite tables
 import dotenv from 'dotenv'
-import inboundRouter from './routes/inbound.ts'
-import stablecoinRouter from './routes/stablecoin.ts'
-import './db'      // initialize SQLite tables
 
 dotenv.config()
 

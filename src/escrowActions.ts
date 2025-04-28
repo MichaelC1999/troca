@@ -1,12 +1,11 @@
-import { createPublicClient, createWalletClient, encodeFunctionData, http } from 'viem'
-import { mainnet } from 'viem/chains'
+import { Address, createPublicClient, createWalletClient, encodeFunctionData, http, parseAbi, zeroAddress } from 'viem'
+import { mainnet, sepolia } from 'viem/chains'
 import { privateKeyToAccount } from 'viem/accounts'
-import usdcAbi from './abis/erc20.json'  // just the ERC20 fragment
 
 const RPC = process.env.RPC_URL!
-const PK  = process.env.PRIVATE_KEY!
+const PK  = process.env.PRIVATE_KEY as any
 
-export const publicClient = createPublicClient({ chain: mainnet, transport: http(RPC) })
+export const publicClient = createPublicClient({ chain: sepolia, transport: http(sepolia.rpcUrls.default.http[0]) })
 export const walletClient = createWalletClient({
   chain: mainnet,
   transport: http(RPC),
@@ -14,11 +13,11 @@ export const walletClient = createWalletClient({
 })
 
 /** transfer USDC */
-export async function transferUSDC(to: string, amount: bigint) {
+export async function transferUSDC(to: Address, amount: bigint) {
   const tx = await walletClient.sendTransaction({
-    to: process.env.USDC_ADDRESS!,
+    to: zeroAddress as Address,
     data: encodeFunctionData({
-      abi: usdcAbi,
+      abi: parseAbi(['function transfer(address rec, uint256 a) external']),
       functionName: 'transfer',
       args: [to, amount],
     })
