@@ -1,6 +1,6 @@
 // src/noir.ts
 import { Noir } from "@noir-lang/noir_js";
-import { UltraHonkBackend } from "@aztec/bb.js";
+import { splitHonkProof, UltraHonkBackend } from "@aztec/bb.js";
 import fs from 'fs'
 import path from 'path'
 
@@ -42,8 +42,11 @@ export async function generateInboundProof(inputs: Record<string, any>) {
   const { witness } = await noirInbound.execute(inputs);
 
   // b) generate a Groth16 proof from that witness
-  const proof = await backendInbound.generateProof(witness);
-  return proof;
+  const rawProofData = await backendInbound.generateProof(witness, { keccak: true });
+  
+  // const proofNoPub = (splitHonkProof(rawProofData.proof, rawProofData.publicInputs.length)).proof
+
+  return {proof:rawProofData.proof, publicInputs: rawProofData.publicInputs};
 }
 
 
@@ -60,5 +63,10 @@ export async function generateOutboundProof(inputs: Record<string, any>) {
   // b) generate a Groth16 proof from that witness
   const proof = await backendOutbound.generateProof(witness);
 
-  return { proof };
+  return proof;
+}
+
+export async function verifyInbound(proof: any, pubs: any[]) {
+  const verified = await backendInbound.verifyProof({proof, publicInputs: pubs}, { keccak: true })
+  console.log('verified?', verified)
 }

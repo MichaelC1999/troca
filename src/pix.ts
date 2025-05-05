@@ -141,8 +141,15 @@ export async function checkPixSent(codigoSolicitacao: any) {
     e2eId,
   }: any) {
     const url = `https://cdpj-sandbox.partners.uatinter.co/pix/v2/pix/${e2eId}`
+
     const headers = await BASE_HEADERS()
+    const config = {
+      httpsAgent,
+      method: 'get',
+      url,
+      headers      
+    };
   
-    const response = await axios.get(url, { headers })
+    const response = await axios(config)
     return response.data // includes recebedor, valor, status, dataHoraMovimento, etc.
   }

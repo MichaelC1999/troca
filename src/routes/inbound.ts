@@ -1,9 +1,10 @@
 import { Router } from 'express'
-import { generateInboundProof } from '../noir'
-import { recoverAddress, keccak256, toBytes, hexToBytes, decodeAbiParameters, parseAbiParameters, recoverPublicKey, encodeAbiParameters, recoverMessageAddress, stringToHex, concat, bytesToHex } from 'viem'
+import { generateInboundProof, verifyInbound } from '../noir'
+import { recoverAddress, keccak256, toBytes, hexToBytes, decodeAbiParameters, parseAbiParameters, recoverPublicKey, encodeAbiParameters, recoverMessageAddress, stringToHex, concat, bytesToHex, createWalletClient, http, Address, webSocket, createPublicClient } from 'viem'
 import { sendPixInbound, checkPixSent } from '../pix'
 import dotenv from 'dotenv'
 import { privateKeyToAccount } from 'viem/accounts'
+import { sepolia } from 'viem/chains'
 
 dotenv.config()
 
@@ -40,39 +41,37 @@ router.post('/send-inbound-pix', async (req: any, res: any) => {
   //intentHex is the data of the intent specifying the sender's nonce, the pix recipient, and the pix amount. Signature signs over a hash of this data
   // const { signature, intentHex } = req.body
 
-    const chavePix = req.body.chave
-    const nonce = req.body.nonce
+    const recipientChavePix = req.body.chave
+    const intentId = req.body.intentId
     const amount = req.body.amount
     let intentSignature = req.body.signature
 
-  const intent_bytes: any = concat([
-    numberToU64Bytes(nonce) as any,    // 8 bytes
-    hexToBytes(keccak256(toBytes(chavePix))),    // 32 bytes
+  const intentBytes: any = concat([
+    hexToBytes(intentId) as any,
+    hexToBytes(keccak256(toBytes(recipientChavePix))),    // 32 bytes
     numberToU64Bytes(amount)    // 8 bytes
   ])
 
-    const intent_hash = keccak256(intent_bytes)
-
-      const nodeAccount = privateKeyToAccount(PK)
-      const signature = await nodeAccount.signMessage({ message: {raw: bytesToHex(intent_bytes)} })
+    const intentHash = keccak256(intentBytes)
+    const nodeAccount = privateKeyToAccount(PK)
+    if (!intentSignature) {
+      intentSignature = await nodeAccount.signMessage({ message: {raw: intentHash} })
+    }
   
   //***************************************************************************** */
 
 
 
-  if (!signature || !bytesToHex(intent_bytes)) {
+  if (!intentSignature || !bytesToHex(intentBytes)) {
     return res.status(400).json({ error: 'Missing signature or payload' })
-
   }
-
-
 
   // Step 2: Recover signer address from signature and hash
   let signerAddress
   try {
     signerAddress = await recoverMessageAddress({
-      message: { raw: bytesToHex(intent_bytes) },
-      signature,
+      message: { raw: intentHash },
+      signature: intentSignature,
     })
   } catch (err) {
     console.log('NO SIGNATURE')
@@ -82,22 +81,14 @@ router.post('/send-inbound-pix', async (req: any, res: any) => {
   let signerPub
   try {
     signerPub = await recoverPublicKey({
-      hash: intent_hash,
-      signature,
+      hash: keccak256(intentHash),
+      signature: intentSignature,
     })
   } catch (err) {
     return res.status(400).json({ error: 'Invalid signature - could not recover public key' })
   }
 
-  if (signerAddress !== nodeAccount?.address) {
-    console.log(signerAddress, nodeAccount?.address)
-    return res.status(400).json({ error: 'Invalid Hash in signature' })
-
-  }
-  const pubkeyBytes = signerPub.slice(4) // remove 0x04 prefix
-  const pub_key_x = '0x' + pubkeyBytes.slice(0, 64)
-  const pub_key_y = '0x' + pubkeyBytes.slice(64)
-  console.log(signerAddress, pub_key_x, pub_key_y)
+  console.log(signerAddress, signerPub)
 
   // -------------- ESCROW VERIFICATION (READ) ----------------
   // (1) Get escrow nonce for signer
@@ -106,9 +97,11 @@ router.post('/send-inbound-pix', async (req: any, res: any) => {
   // await readEscrowState(signerAddress, nonce)
 
   // -------------- SEND PIX ----------------
-  const pixData = await sendPixInbound({chavePix,valor: Number(amount)})
+  console.log(recipientChavePix, Number(amount))
+  const pixData = await sendPixInbound({chavePix: recipientChavePix,valor: Number(amount)})
   // Wait for it to finalize
   if (!pixData || (pixData.tipoRetorno !== "PROCESSADO"  && pixData.tipoRetorno !== "APROVADO")) {
+    console.log(pixData)
     return res.status(400).json({ error: 'Pix not sent' })
   }
 
@@ -123,7 +116,7 @@ router.post('/send-inbound-pix', async (req: any, res: any) => {
 
 // Build manually
 const payloadtxidBytes = hexToBytes(keccak256(stringToHex(pixData.codigoSolicitacao)))
-const payloadchaveBytes = hexToBytes(keccak256(stringToHex(chavePix)))
+const payloadchaveBytes = hexToBytes(keccak256(stringToHex(recipientChavePix)))
 const payloadamountBytes = numberToU64Bytes(amount)
 
 const payload: any = concat([
@@ -131,28 +124,32 @@ const payload: any = concat([
   payloadchaveBytes,     // 32 bytes
   payloadamountBytes     // 8 bytes
 ] as any)
-  // const payloadBytes = toBytes(payload)
+
   const payloadHash = keccak256(payload)
   const payloadHashBytes = Array.from(hexToBytes(payloadHash))
 
-  const signatureBytes = Array.from(hexToBytes(signature)).slice(0,64)
-  const txidBytes = Array.from(hexToBytes(keccak256(stringToHex(pixData.codigoSolicitacao))))
-  const chaveBytes = Array.from(hexToBytes(keccak256(stringToHex(chavePix))))
+  const signatureBytes = Array.from(hexToBytes(intentSignature)).slice(0,64)
+  const txidBytes = Array.from(payloadtxidBytes)
+  const chaveBytes = Array.from(payloadchaveBytes)
+  const intentIdBytes = Array.from(hexToBytes(intentId))
+  
+  const pubkeyBytes = signerPub.slice(4) // remove 0x04 prefix
+  const pub_key_x = '0x' + pubkeyBytes.slice(0, 64)
+  const pub_key_y = '0x' + pubkeyBytes.slice(64)
   const signerPubX = Array.from(hexToBytes(pub_key_x as any))
   const signerPubY = Array.from(hexToBytes(pub_key_y as any))
 
 
-  const nonceBytes = numberToU64Bytes(nonce)
   const amountBytes = numberToU64Bytes(amount)
 
   // === Noir-compatible circuit inputs ===
   const circuitInputs = {
     //PRIVATE
     signature: signatureBytes,
-    chave_bytes: chaveBytes,
+    chave_hash_bytes: chaveBytes,
     amount_bytes: amountBytes,
-    txid_bytes: txidBytes,
-    nonce_bytes: nonceBytes,
+    txid_hash_bytes: txidBytes,
+    intent_id_bytes: intentIdBytes,
     //PUBLIC
     payload_hash: payloadHashBytes,
     signing_sender_x: signerPubX,
@@ -160,8 +157,8 @@ const payload: any = concat([
   }
   console.log(circuitInputs)
   // -------- GENERATE PROOF ----------
-  const {proof} = await generateInboundProof(circuitInputs)
-
+  const {proof, publicInputs}: any = await generateInboundProof(circuitInputs)
+  await verifyInbound(proof, publicInputs)
   // -------- STORE + RETURN ----------
   // db.prepare(
   //   `INSERT INTO proofs (id, type, public_inputs_json, proof_json)
@@ -172,8 +169,55 @@ const payload: any = concat([
   //   JSON.stringify(proof),
   // )
 
+  const escrowAddress = process.env.ESCROW_ADDRESS
+
+  const escrowABI = [{
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "intentId",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes",
+        "name": "proof",
+        "type": "bytes"
+      },
+      {
+        "internalType": "bytes32[]",
+        "name": "publicInputs",
+        "type": "bytes32[]"
+      }
+    ],
+    "name": "executeInbound",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }]
+
+  const wallet = createWalletClient({
+    account: nodeAccount,
+    chain: sepolia,
+    transport: webSocket("wss://sepolia.infura.io/ws/v3/" + process.env.INFURA),
+
+  });
+
+
+  const executeInboundFinality = await wallet.writeContract({
+    abi: escrowABI,
+    functionName: "executeInbound",
+    args: [intentId, bytesToHex(proof), publicInputs],
+    address: escrowAddress as Address,
+    gas: 15000000n
+  })
+
+  console.log('INBOUND FINALITY?', executeInboundFinality)
+
+
+
+
   
 
-  return res.json({ txid: pixData.codigoSolicitacao, signerAddress, intendedRecipient: chavePix, amount: Number(amount), proof: bytesToHex(proof) })
+  return res.json({ txid: pixData.codigoSolicitacao, signerAddress, signerPubX: pub_key_x, signerPubY: pub_key_y, intendedRecipient: recipientChavePix, payloadHash, amount: Number(amount) })
 })
 export default router
