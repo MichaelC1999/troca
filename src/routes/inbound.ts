@@ -43,7 +43,7 @@ router.post('/send-inbound-pix', async (req: any, res: any) => {
 
     const recipientChavePix = req.body.chave
     const intentId = req.body.intentId
-    const amount = req.body.amount
+    const amount = req.body.amount // WE ARE ASSUMING THIS IS SENT TO BACKEND IN BRL
     let intentSignature = req.body.signature
 
   const intentBytes: any = concat([
@@ -218,6 +218,6 @@ const payload: any = concat([
 
   
 
-  return res.json({ txid: pixData.codigoSolicitacao, signerAddress, signerPubX: pub_key_x, signerPubY: pub_key_y, intendedRecipient: recipientChavePix, payloadHash, amount: Number(amount) })
+  return res.json({ finalityTx: executeInboundFinality, txid: pixData.codigoSolicitacao, signerAddress, signerPubX: pub_key_x, signerPubY: pub_key_y, intendedRecipient: recipientChavePix, payloadHash, amount: (Number(amount)/100).toFixed(2) })
 })
 export default router
