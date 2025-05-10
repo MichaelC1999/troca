@@ -2,6 +2,7 @@
 
 A trustless, privacy-preserving off-ramp for DAOs to send and receive payments via Brazil’s Pix network using on-chain escrows and zero-knowledge proofs.
 
+https://troca-ui.vercel.app/
 ---
 
 ## Overview
